@@ -8,7 +8,7 @@ import (
     "os"
 )
 
-func main() {
+func init() {
     http.HandleFunc("/", handle)
     http.HandleFunc("/_ah/health", healthCheckHandler)
     http.HandleFunc("/feed", feedHandler)
