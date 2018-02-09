@@ -15,7 +15,7 @@ func init() {
     http.HandleFunc("/update-feed", feedUpdateHandler)
 
 
-    log.Print("Listening on port 8080")
+    log.Print("Listening on port 8087")
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
 

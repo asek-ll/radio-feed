@@ -7,6 +7,8 @@ import (
     "net/url"
     "os"
     "time"
+    "crypto/sha1"
+    "encoding/base64"
 
     "github.com/gorilla/feeds"
     "github.com/PuerkitoBio/goquery"
@@ -46,6 +48,10 @@ func ScrapeFeed() {
             month := subdoc.Find(".post_date .month").Text()
             year := subdoc.Find(".post_date .year").Text()
 
+            hasher := sha1.New()
+            hasher.Write([]byte(year +"-" + month + "-" + date + ": " + title))
+            id := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
             published, _ := time.Parse(shortForm, year +"-" + month + "-" + date)
 
             playerUrl, _ := url.Parse("http:" + playerSrc);
@@ -65,7 +71,7 @@ func ScrapeFeed() {
 
                     feed.Items = append(feed.Items, 
                     &feeds.Item{
-                        Id: fileLink,
+                        Id:          id,
                         Title:       title,
                         Link:        &feeds.Link{Href: link},
                         Enclosure:   &feeds.Enclosure{Url: fileLink, Length: length, Type: contentType},
