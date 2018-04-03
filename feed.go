@@ -2,38 +2,36 @@ package main
 
 import (
 	// import standard libraries
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/gorilla/feeds"
+	"google.golang.org/appengine/urlfetch"
 )
 
 const shortForm = "2006-Jan-02"
 
-func ScrapeFeed() {
+func ScrapeFeed(ctx *context.Context) string {
 	feed := &feeds.Feed{
 		Title:       "Своё Радио",
 		Link:        &feeds.Link{Href: "https://youtube.com/channel/UCpT2HfwVbQTkDNA-chwgRew"},
 		Description: "Официальный канал радиостанции Своё Радио. Архивы",
-		Items:       ScrapePageItems(1, "http://svoeradio.fm/archive/audio-archive"),
+		Items:       ScrapePageItems(1, "http://svoeradio.fm/archive/audio-archive", ctx),
 	}
 
 	rss, _ := feed.ToRss()
 
-	f, _ := os.OpenFile("./feed.xml", os.O_CREATE, 0755)
-	defer f.Close()
-
-	f.Write([]byte(rss))
+	return rss
 }
 
-func ScrapeAllAudioArchives() {
+func ScrapeAllAudioArchives(ctx *context.Context) string {
 	feed := &feeds.Feed{
 		Title:       "Своё Радио",
 		Link:        &feeds.Link{Href: "https://youtube.com/channel/UCpT2HfwVbQTkDNA-chwgRew"},
@@ -41,7 +39,7 @@ func ScrapeAllAudioArchives() {
 	}
 
 	for i := 1; true; i++ {
-		items := ScrapePageItems(i, "http://svoeradio.fm/archive/audio-archive")
+		items := ScrapePageItems(i, "http://svoeradio.fm/archive/audio-archive", ctx)
 		if len(items) == 0 {
 			break
 		}
@@ -50,15 +48,20 @@ func ScrapeAllAudioArchives() {
 
 	rss, _ := feed.ToRss()
 
-	f, _ := os.OpenFile("./feed.xml", os.O_CREATE, 0755)
-	defer f.Close()
-
-	f.Write([]byte(rss))
+	return rss
 }
 
-func getFileLink(playerUrl string, ttl int) string {
+func getGoQuery(url string, ctx *context.Context) (*goquery.Document, error) {
+	client := urlfetch.Client(*ctx)
+	resp, err := client.Get(url)
 
-	playerdoc, err := goquery.NewDocument(playerUrl)
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	return doc, err
+}
+
+func getFileLink(playerUrl string, ttl int, ctx *context.Context) string {
+
+	playerdoc, err := getGoQuery(playerUrl, ctx)
 	var fileLink string = ""
 
 	if err != nil {
@@ -69,15 +72,15 @@ func getFileLink(playerUrl string, ttl int) string {
 	}
 
 	if fileLink == "" && ttl > 0 {
-		return getFileLink(playerUrl, ttl-1)
+		return getFileLink(playerUrl, ttl-1, ctx)
 	}
 	return fileLink
 
 }
 
-func GetFileUrl(link string) string {
+func GetFileUrl(link string, ctx *context.Context) string {
 
-	subdoc, err := goquery.NewDocument(link)
+	subdoc, err := getGoQuery(link, ctx)
 	if err != nil {
 		return ""
 	} else {
@@ -95,13 +98,13 @@ func GetFileUrl(link string) string {
 		hasher.Write([]byte(year + "-" + month + "-" + date + ": " + title))
 		playerUrl, _ := url.Parse("http:" + playerSrc)
 
-		return getFileLink(playerUrl.String(), 5)
+		return getFileLink(playerUrl.String(), 5, ctx)
 	}
 }
 
-func ScrapePageItems(page int, url string) []*feeds.Item {
+func ScrapePageItems(page int, url string, ctx *context.Context) []*feeds.Item {
 	fmt.Printf("scrape page %d at %s \n", page, url)
-	doc, err := goquery.NewDocument(fmt.Sprintf(url+"/page/%d", page))
+	doc, err := getGoQuery(fmt.Sprintf(url+"/page/%d", page), ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -125,7 +128,7 @@ func ScrapePageItems(page int, url string) []*feeds.Item {
 
 		published, _ := time.Parse(shortForm, year+"-"+month+"-"+date)
 
-		fileLink := strings.Replace(link, "http://svoeradio.fm/", "http://vottd-denblo2:8087/file/", 1)
+		fileLink := strings.Replace(link, "http://svoeradio.fm/", "http://svoe-feed.appspot.com/file/", 1)
 
 		feedItem := &feeds.Item{
 			Id:          id,
@@ -140,8 +143,4 @@ func ScrapePageItems(page int, url string) []*feeds.Item {
 
 	})
 	return items
-}
-
-func ScrapeAlivePageItems(page int) []*feeds.Item {
-	return ScrapePageItems(page, "http://svoeradio.fm/archive/audio-archive/alive")
 }
