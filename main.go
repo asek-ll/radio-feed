@@ -6,6 +6,7 @@ import (
     "net/http"
     "io"
     "os"
+    "regexp"
 )
 
 func main() {
@@ -13,6 +14,8 @@ func main() {
     http.HandleFunc("/_ah/health", healthCheckHandler)
     http.HandleFunc("/feed", feedHandler)
     http.HandleFunc("/update-feed", feedUpdateHandler)
+    http.HandleFunc("/full-update-feed", fullFeedUpdateHandler)
+    http.HandleFunc("/file/", fileProxyHandler)
 
 
     log.Print("Listening on port 8087")
@@ -43,4 +46,23 @@ func feedUpdateHandler(w http.ResponseWriter, r *http.Request) {
     ScrapeFeed()
 
     fmt.Fprint(w, "update-feed")
+}
+
+
+func fileProxyHandler(w http.ResponseWriter, r *http.Request) {
+    re := regexp.MustCompile("/file/(.+)")
+    match := re.FindStringSubmatch(r.URL.EscapedPath())
+
+    fileUrl := GetFileUrl("http://svoeradio.fm/" + match[1])
+
+    if fileUrl != "" {
+        http.Redirect(w, r, fileUrl, 301)
+    } else {
+        fmt.Fprint(w, "Bad file url: ", match[1])
+    }
+
+}
+func fullFeedUpdateHandler(w http.ResponseWriter, r *http.Request) {
+    ScrapeAllAudioArchives()
+    fmt.Fprint(w, "full-update-feed")
 }
