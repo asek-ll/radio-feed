@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+    "io/ioutil"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/appengine"
@@ -31,19 +32,28 @@ func main() {
 
 func registerHandlers() {
 	r := mux.NewRouter()
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	r.HandleFunc("/_ah/health", healthCheckHandler)
 	r.HandleFunc("/feed", feedHandler)
 	r.HandleFunc("/file/", fileProxyHandler)
-	r.HandleFunc("/svoe-migrate", migrateSvoeRecords).Methods("GET")
 	r.HandleFunc("/records", getRecordsHandler).Methods("GET")
-	r.HandleFunc("/records/current", getCurrentRecordsHandler).Methods("GET")
-	r.HandleFunc("/records/current/{id}", setCurrentRecordHandler).Methods("PUT")
+	r.HandleFunc("/feed/current", getCurrentRecordsFeedHandler).Methods("GET")
+	r.HandleFunc("/records/{id}", updateRecordHandler).Methods("PUT")
+
+	r.HandleFunc("/svoe/migrate", migrateSvoeRecords).Methods("GET")
+	r.HandleFunc("/svoe/update", updateSvoeRecord).Methods("GET")
 	//r.HandleFunc("/records/unreaded", getRecordsHandler).Methods("GET")
 
-	http.Handle("/", r)
-	//http.HandleFunc("/", handle)
+    //r.PathPrefix("/").Handler(http.FileServer(http.Dir("static")))
+
+	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+    r.NotFoundHandler = http.HandlerFunc(handleIndex)
+    http.Handle("/", r)
+    //http.HandleFunc("/", handle)
+}
+
+func handleIndex(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, "static/index.html")
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
@@ -70,21 +80,11 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 func feedHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-	q := datastore.NewQuery("Records").
-		Order("-Created")
+    records := ScrapeRecords(1, "http://svoeradio.fm/archive/audio-archive", &ctx)
 
-	var records []Record
-
-	_, err := q.GetAll(ctx, &records)
-
-	if err == nil {
-		rss := GetFeedFromRecords(&records)
-		w.Header().Set("Content-Type", "application/xml")
-		fmt.Fprint(w, rss)
-	} else {
-		fmt.Fprint(w, err)
-	}
-
+    rss := GetFeedFromRecords(records)
+    w.Header().Set("Content-Type", "application/xml")
+    fmt.Fprint(w, rss)
 }
 
 func fileProxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +105,8 @@ func fileProxyHandler(w http.ResponseWriter, r *http.Request) {
 func getRecordsHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-	q := datastore.NewQuery("Records")
+	q := datastore.NewQuery("Records").
+		Order("-Created")
 
 	var records []Record
 
@@ -114,7 +115,7 @@ func getRecordsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(records)
 }
 
-func getCurrentRecordsHandler(w http.ResponseWriter, r *http.Request) {
+func getCurrentRecordsFeedHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
 	q := datastore.NewQuery("Records").Filter("Current =", true)
@@ -127,15 +128,14 @@ func getCurrentRecordsHandler(w http.ResponseWriter, r *http.Request) {
 		records = []Record{}
 	}
 
-	json.NewEncoder(w).Encode(records)
+    rss := GetFeedFromRecords(&records)
+    w.Header().Set("Content-Type", "application/xml")
+    fmt.Fprint(w, rss)
 }
 
 func getRecordByID(id string, ctx *context.Context) (*datastore.Key, *Record) {
-	log.Debugf(*ctx, "Get record by id %s", id)
 	q := datastore.NewQuery("Records").
-		Filter("ID =", id).
-		Limit(50).
-		Offset(50)
+		Filter("ID = ", id)
 
 	var records []Record
 	keys, err := q.GetAll(*ctx, &records)
@@ -145,21 +145,29 @@ func getRecordByID(id string, ctx *context.Context) (*datastore.Key, *Record) {
 	}
 
 	if records != nil {
-		log.Debugf(*ctx, "Finded")
 		return keys[0], &records[0]
 	}
-	log.Debugf(*ctx, "NotFinded")
 	return nil, nil
 }
 
-func setCurrentRecordHandler(w http.ResponseWriter, r *http.Request) {
+func updateRecordHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	ctx := appengine.NewContext(r)
+
+    byt, _ := ioutil.ReadAll(r.Body)
+    defer r.Body.Close()
+
+    var updatedRecord Record
+
+    if err := json.Unmarshal(byt, &updatedRecord); err != nil {
+        panic(err)
+    }
 
 	key, record := getRecordByID(vars["id"], &ctx)
 
 	if record != nil {
-		record.Current = true
+		record.Current = updatedRecord.Current
+		record.Readed = updatedRecord.Readed
 		datastore.Put(ctx, key, record)
 
 		json.NewEncoder(w).Encode(record)
@@ -168,13 +176,13 @@ func setCurrentRecordHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func addOrUpdateRecord(record *Record, ctx *context.Context) {
-	key, _ := getRecordByID(record.ID, ctx)
+	key, record := getRecordByID(record.ID, ctx)
 
 	if key == nil {
 		key = datastore.NewIncompleteKey(*ctx, "Records", nil)
+        datastore.Put(*ctx, key, record)
 	}
 
-	datastore.Put(*ctx, key, record)
 }
 
 func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
@@ -183,12 +191,28 @@ func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
 	for i := 0; true; i++ {
 		records := ScrapeRecords(i, "http://svoeradio.fm/archive/audio-archive", &ctx)
 
-		if len(records) == 0 {
+		if len(*records) == 0 {
 			break
 		}
 
-		for _, record := range records {
-			addOrUpdateRecord(record, &ctx)
+		for _, record := range *records {
+			addOrUpdateRecord(&record, &ctx)
+		}
+
+	}
+
+	fmt.Fprint(w, "Done")
+
+}
+
+func updateSvoeRecord(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+
+	for i := 0; i < 2; i++ {
+		records := ScrapeRecords(i, "http://svoeradio.fm/archive/audio-archive", &ctx)
+
+		for _, record := range *records {
+			addOrUpdateRecord(&record, &ctx)
 		}
 
 	}

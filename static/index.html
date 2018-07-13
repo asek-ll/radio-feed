@@ -1,11 +1,26 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>A static page</title>
-  <link rel="stylesheet" href="/stylesheets/main.css">
+  <title>FeedApp</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
-<body>
-  <h1>Hello from a static page</h1>
-</body>
+<body class="bg-light">
+
+  <div class="d-flex flex-column flex-md-row align-items-center p-3 px-md-4 mb-3 bg-white border-bottom box-shadow">
+    <h5 class="my-0 mr-md-auto font-weight-normal">Custom feed</h5>
+    <nav class="my-2 my-md-0 mr-md-3">
+      <a class="p-2 text-dark" href="#">All</a>
+      <!-- <a class="p-2 text-dark" href="#">Enterprise</a> -->
+      <!-- <a class="p-2 text-dark" href="#">Support</a> -->
+      <!-- <a class="p-2 text-dark" href="#">Pricing</a> -->
+    </nav>
+  </div>
+
+  <div class="container">
+    <app-root></app-root>
+  </div>
+<script type="text/javascript" src="/static/runtime.js"></script><script type="text/javascript" src="/static/polyfills.js"></script><script type="text/javascript" src="/static/styles.js"></script><script type="text/javascript" src="/static/vendor.js"></script><script type="text/javascript" src="/static/main.js"></script></body>
 </html>

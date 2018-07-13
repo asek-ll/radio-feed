@@ -55,6 +55,10 @@ func getGoQuery(url string, ctx *context.Context) (*goquery.Document, error) {
 	client := urlfetch.Client(*ctx)
 	resp, err := client.Get(url)
 
+    if err != nil {
+        return nil, err
+    }
+
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	return doc, err
 }
@@ -171,14 +175,14 @@ func GetFeedFromRecords(records *[]Record) string {
 	return rss
 }
 
-func ScrapeRecords(page int, url string, ctx *context.Context) []*Record {
+func ScrapeRecords(page int, url string, ctx *context.Context) *[]Record {
 	fmt.Printf("scrape page %d at %s \n", page, url)
 	doc, err := getGoQuery(fmt.Sprintf(url+"/page/%d", page), ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	var items []*Record
+	var items []Record
 
 	doc.Find("article").Each(func(index int, item *goquery.Selection) {
 		linkTag := item.Find(".post_info a")
@@ -199,7 +203,7 @@ func ScrapeRecords(page int, url string, ctx *context.Context) []*Record {
 
 		fileLink := strings.Replace(link, "http://svoeradio.fm/", "http://svoe-feed.appspot.com/file/", 1)
 
-		record := &Record{
+		record := Record{
 			ID:          id,
 			Title:       title,
 			Link:        link,
@@ -211,5 +215,5 @@ func ScrapeRecords(page int, url string, ctx *context.Context) []*Record {
 		items = append(items, record)
 
 	})
-	return items
+	return &items
 }
