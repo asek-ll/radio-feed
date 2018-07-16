@@ -55,9 +55,9 @@ func getGoQuery(url string, ctx *context.Context) (*goquery.Document, error) {
 	client := urlfetch.Client(*ctx)
 	resp, err := client.Get(url)
 
-    if err != nil {
-        return nil, err
-    }
+	if err != nil {
+		return nil, err
+	}
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	return doc, err

@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
-	"regexp"
-    "io/ioutil"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/appengine"
@@ -35,25 +34,21 @@ func registerHandlers() {
 
 	r.HandleFunc("/_ah/health", healthCheckHandler)
 	r.HandleFunc("/feed", feedHandler)
-	r.HandleFunc("/file/", fileProxyHandler)
+	r.HandleFunc("/file/{path:.+}", fileProxyHandler)
 	r.HandleFunc("/records", getRecordsHandler).Methods("GET")
 	r.HandleFunc("/feed/current", getCurrentRecordsFeedHandler).Methods("GET")
 	r.HandleFunc("/records/{id}", updateRecordHandler).Methods("PUT")
 
 	r.HandleFunc("/svoe/migrate", migrateSvoeRecords).Methods("GET")
 	r.HandleFunc("/svoe/update", updateSvoeRecord).Methods("GET")
-	//r.HandleFunc("/records/unreaded", getRecordsHandler).Methods("GET")
-
-    //r.PathPrefix("/").Handler(http.FileServer(http.Dir("static")))
 
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
-    r.NotFoundHandler = http.HandlerFunc(handleIndex)
-    http.Handle("/", r)
-    //http.HandleFunc("/", handle)
+	r.NotFoundHandler = http.HandlerFunc(handleIndex)
+	http.Handle("/", r)
 }
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-    http.ServeFile(w, r, "static/index.html")
+	http.ServeFile(w, r, "static/index.html")
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
@@ -80,24 +75,25 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 func feedHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-    records := ScrapeRecords(1, "http://svoeradio.fm/archive/audio-archive", &ctx)
+	records := ScrapeRecords(1, "http://svoeradio.fm/archive/audio-archive", &ctx)
 
-    rss := GetFeedFromRecords(records)
-    w.Header().Set("Content-Type", "application/xml")
-    fmt.Fprint(w, rss)
+	rss := GetFeedFromRecords(records)
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprint(w, rss)
 }
 
 func fileProxyHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
-	re := regexp.MustCompile("/file/(.+)")
-	match := re.FindStringSubmatch(r.URL.EscapedPath())
 
-	fileURL := GetFileURL("http://svoeradio.fm/"+match[1], &ctx)
+	vars := mux.Vars(r)
+	path := vars["path"]
+
+	fileURL := GetFileURL("http://svoeradio.fm/"+path, &ctx)
 
 	if fileURL != "" {
 		http.Redirect(w, r, fileURL, 301)
 	} else {
-		fmt.Fprint(w, "Bad file url: ", match[1])
+		fmt.Fprint(w, "Bad file url: ", path)
 	}
 
 }
@@ -128,9 +124,9 @@ func getCurrentRecordsFeedHandler(w http.ResponseWriter, r *http.Request) {
 		records = []Record{}
 	}
 
-    rss := GetFeedFromRecords(&records)
-    w.Header().Set("Content-Type", "application/xml")
-    fmt.Fprint(w, rss)
+	rss := GetFeedFromRecords(&records)
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprint(w, rss)
 }
 
 func getRecordByID(id string, ctx *context.Context) (*datastore.Key, *Record) {
@@ -154,14 +150,14 @@ func updateRecordHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	ctx := appengine.NewContext(r)
 
-    byt, _ := ioutil.ReadAll(r.Body)
-    defer r.Body.Close()
+	byt, _ := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
 
-    var updatedRecord Record
+	var updatedRecord Record
 
-    if err := json.Unmarshal(byt, &updatedRecord); err != nil {
-        panic(err)
-    }
+	if err := json.Unmarshal(byt, &updatedRecord); err != nil {
+		panic(err)
+	}
 
 	key, record := getRecordByID(vars["id"], &ctx)
 
@@ -176,11 +172,11 @@ func updateRecordHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func addOrUpdateRecord(record *Record, ctx *context.Context) {
-	key, record := getRecordByID(record.ID, ctx)
+	key, _ := getRecordByID(record.ID, ctx)
 
 	if key == nil {
 		key = datastore.NewIncompleteKey(*ctx, "Records", nil)
-        datastore.Put(*ctx, key, record)
+		datastore.Put(*ctx, key, record)
 	}
 
 }
@@ -188,7 +184,7 @@ func addOrUpdateRecord(record *Record, ctx *context.Context) {
 func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-	for i := 0; true; i++ {
+	for i := 1; true; i++ {
 		records := ScrapeRecords(i, "http://svoeradio.fm/archive/audio-archive", &ctx)
 
 		if len(*records) == 0 {
@@ -208,7 +204,7 @@ func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
 func updateSvoeRecord(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-	for i := 0; i < 2; i++ {
+	for i := 1; i < 2; i++ {
 		records := ScrapeRecords(i, "http://svoeradio.fm/archive/audio-archive", &ctx)
 
 		for _, record := range *records {
