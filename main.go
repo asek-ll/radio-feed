@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"google.golang.org/appengine"
@@ -39,7 +40,7 @@ func registerHandlers() {
 	r.HandleFunc("/feed/current", getCurrentRecordsFeedHandler).Methods("GET")
 	r.HandleFunc("/records/{id}", updateRecordHandler).Methods("PUT")
 
-	r.HandleFunc("/svoe/migrate", migrateSvoeRecords).Methods("GET")
+	r.HandleFunc("/svoe/migrate", migrateSvoeRecords).Queries("page", "{page}").Methods("GET")
 	r.HandleFunc("/svoe/update", updateSvoeRecord).Methods("GET")
 
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -183,13 +184,24 @@ func addOrUpdateRecord(record *Record, ctx *context.Context) {
 
 func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
+	v := mux.Vars(r)
+	page, ok := v["page"]
+	pageIndex := 1
+	if ok {
+		parsedPage, err := strconv.Atoi(page)
+		if err == nil {
+			pageIndex = parsedPage
+		}
+	}
 
-	for i := 1; true; i++ {
+	endPage := pageIndex
+
+	for i := pageIndex; true; i++ {
 		records := ScrapeRecords(i, "http://svoeradio.fm/archive/audio-archive", &ctx)
-
 		if len(*records) == 0 {
 			break
 		}
+		endPage++
 
 		for _, record := range *records {
 			addOrUpdateRecord(&record, &ctx)
@@ -197,7 +209,7 @@ func migrateSvoeRecords(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	fmt.Fprint(w, "Done")
+	fmt.Fprint(w, "Done at page ", endPage)
 
 }
 
